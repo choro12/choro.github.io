@@ -137,6 +137,13 @@
             color: #ef4444;
             font-weight: bold;
         }
+        /* NEW: Style for continuation indicator */
+        .continuation-indicator {
+            font-size: 0.7em;
+            color: #8b5cf6; /* Purple color */
+            font-weight: bold;
+            margin-top: 2px;
+        }
         .modal {
             display: none; /* Hidden by default */
             position: fixed; /* Stay in place */
@@ -301,7 +308,7 @@
         const FIXED_MONTHLY_BASE_PAY = 2214290; // 사용자님이 말씀하신 고정 기본급
 
         // --- Global Variables ---
-        let allAttendanceRecords = {}; // { 'YYYY-MM-DD': [{ start: 'HH:MM', end: 'HH:MM' }] }
+        let allAttendanceRecords = {}; // { 'YYYY-MM-DD': [{ start: 'HH:MM', end: 'HH:MM', isNextDay: boolean }] }
         // 2025년 대한민국 법정공휴일 초기 설정
         let holidays = [
             '2025-01-01', // 신정
@@ -509,7 +516,7 @@
                 // Duration is from startSec to midnight, plus from midnight to endSec.
                 totalElapsedSeconds = (24 * 3600 - startSec) + endSec;
                 // Special case: if start and end times are identical (e.g., 08:00 to 08:00 next day), it's a full 24-hour shift.
-                if (startSec === endSec && (startTimeStr !== '00:00' || endTimeStr !== '00:00')) { // Exclude 00:00 to 00:00 as a 24hr shift unless explicitly intended
+                if (startSec === endSec && (startTimeStr !== '00:00' || endTimeStr !== '00:00')) {
                     totalElapsedSeconds = 24 * 3600;
                 }
             } else {
@@ -521,7 +528,6 @@
             let fixedBreaksDeducted = 0;
 
             // Define all possible break intervals for a 24-hour cycle, relative to 00:00
-            // NEW: Breakfast break (08:00-08:30) is only applied if isNextDay is true
             const BREAK_INTERVALS_FOR_ALL_SHIFTS = [
                 { start: timeToSeconds('12:00:00'), end: timeToSeconds('13:00:00') }, // Lunch
                 { start: timeToSeconds('20:00:00'), end: timeToSeconds('20:30:00') }, // Dinner
@@ -542,14 +548,9 @@
                 }
             }
 
-            // NEW: Conditionally apply breakfast break only for overnight shifts (isNextDay is true)
+            // Conditionally apply breakfast break only for overnight shifts (isNextDay is true)
             if (isNextDay) {
-                // Breakfast break applies only if the shift crosses midnight and includes 08:00-08:30 on the *next* day.
-                // Or if the shift starts before 08:30 and crosses midnight.
-                // To accurately apply the breakfast break for an overnight shift, we need to consider if the work span
-                // includes the 08:00-08:30 window of the *next* day.
-                // The work interval on a continuous timeline goes from `startSec` to `startSec + totalElapsedSeconds`.
-                // The breakfast break for the next day is `08:00:00 + 24*3600` to `08:30:00 + 24*3600`.
+                // Breakfast break applies if the shift overlaps with 08:00-08:30 on the NEXT day.
                 const nextDayBreakfastStart = BREAKFAST_BREAK.start + 24 * 3600;
                 const nextDayBreakfastEnd = BREAKFAST_BREAK.end + 24 * 3600;
                 fixedBreaksDeducted += getLinearIntervalOverlap(startSec, workIntervalEndOnContinuousTimeline, nextDayBreakfastStart, nextDayBreakfastEnd);
@@ -572,6 +573,24 @@
             }
             
             return { actualWorkSeconds, nightShiftSeconds, overtimeSeconds };
+        }
+
+        /**
+         * Checks if a given date is a continuation of an overnight shift from the previous day.
+         * @param {Date} date - The Date object for the current day being rendered.
+         * @returns {boolean} True if it's a continuation, false otherwise.
+         */
+        function isOvernightShiftContinuation(date) {
+            const prevDate = new Date(date);
+            prevDate.setDate(date.getDate() - 1); // Get the previous day
+            const prevFormattedDate = formatDate(prevDate);
+
+            const prevDayRecords = allAttendanceRecords[prevFormattedDate];
+            if (prevDayRecords) {
+                // Check if any record on the previous day has isNextDay set to true
+                return prevDayRecords.some(record => record.isNextDay === true);
+            }
+            return false;
         }
 
         // --- Core Functions ---
@@ -624,6 +643,12 @@
                 if (formattedDate === selectedDate) {
                     dayEl.classList.add('selected');
                 }
+                
+                // NEW: Add continuation indicator if this day is the end of an overnight shift
+                if (isOvernightShiftContinuation(date)) {
+                    dayEl.innerHTML += `<div class="continuation-indicator">연장</div>`;
+                }
+
                 if (allAttendanceRecords[formattedDate] && allAttendanceRecords[formattedDate].length > 0) {
                     dayEl.classList.add('has-record');
                     const totalDailyWork = calculateTotalDailyWork(formattedDate);
@@ -1021,7 +1046,7 @@
         addHolidayBtn.addEventListener('click', () => {
             const inputDates = holidayInput.value.split(',').map(d => d.trim()).filter(d => d);
             const addedCount = inputDates.reduce((count, dateStr) => {
-                // Basic format check YYYY-MM-DD
+                // Basic format check APAC-MM-DD
                 if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !holidays.includes(dateStr)) {
                     holidays.push(dateStr);
                     return count + 1;
