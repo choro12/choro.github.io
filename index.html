@@ -301,7 +301,24 @@
 
         // --- Global Variables ---
         let allAttendanceRecords = {}; // { 'YYYY-MM-DD': [{ start: 'HH:MM', end: 'HH:MM' }] }
-        let holidays = []; // ['YYYY-MM-DD', 'YYYY-MM-DD']
+        // 2025년 대한민국 법정공휴일 추가
+        let holidays = [
+            '2025-01-01', // 신정
+            '2025-01-28', // 설날
+            '2025-01-29', // 설날 연휴
+            '2025-01-30', // 설날 연휴
+            '2025-03-01', // 삼일절
+            '2025-05-05', // 어린이날
+            '2025-05-28', // 부처님오신날 (음력 4월 8일)
+            '2025-06-06', // 현충일
+            '2025-08-15', // 광복절
+            '2025-10-03', // 개천절
+            '2025-10-06', // 추석
+            '2025-10-07', // 추석 연휴
+            '2025-10-08', // 추석 연휴
+            '2025-10-09', // 한글날
+            '2025-12-25'  // 성탄절
+        ];
         let currentMonth = new Date().getMonth();
         let currentYear = new Date().getFullYear();
         let selectedDate = null; // YYYY-MM-DD format
@@ -340,7 +357,7 @@
         const monthlySummaryMonth = document.getElementById('monthlySummaryMonth');
         const monthlyBasePay = document.getElementById('monthlyBasePay');
         const totalMonthlyHours = document.getElementById('totalMonthlyHours');
-        const monthlyStandardHoursDisplay = document.getElementById('monthlyStandardHoursDisplay'); // NEW: 월 소정근로시간 표시
+        const monthlyStandardHoursDisplay = document.getElementById('monthlyStandardHoursDisplay');
         const totalMonthlyWeeklyAllowance = document.getElementById('totalMonthlyWeeklyAllowance');
         const totalMonthlyOvertimePay = document.getElementById('totalMonthlyOvertimePay');
         const totalMonthlyNightPay = document.getElementById('totalMonthlyNightPay');
@@ -560,9 +577,7 @@
                     dayEl.classList.add('has-record');
                     const totalDailyWork = calculateTotalDailyWork(formattedDate);
                     const workHours = secondsToHoursMinutes(totalDailyWork.totalActualWorkSeconds);
-                    // 일별 표시 급여는 해당 날짜의 야간/휴일 가산 수당만 포함 (기본급 및 OT는 월별 합계에서 계산)
-                    const dailyPayComponent = calculateTotalPayForDay(formattedDate); // 이 함수는 이제 가산수당만 반환
-                    // 캘린더 일별 표시용 임시 금액 (기본 시간 + 가산분)
+                    const dailyPayComponent = calculateTotalPayForDay(formattedDate);
                     const tempDailyDisplayPay = (totalDailyWork.totalActualWorkSeconds / 3600) * HOURLY_RATE + dailyPayComponent;
 
                     dayEl.innerHTML += `<div class="work-hours">${workHours}</div>`;
@@ -608,17 +623,15 @@
                 selectedDateDisplay.textContent = `${selectedDate} 근무 기록`;
                 const records = allAttendanceRecords[selectedDate];
                 if (records && records.length > 0) {
-                    // Set input times to the last record's times
                     startTimeInput.value = records[records.length - 1].start;
                     endTimeInput.value = records[records.length - 1].end;
                 } else {
-                    // Reset to default if no records
                     startTimeInput.value = '09:00';
                     endTimeInput.value = '18:00';
                 }
             } else {
                 selectedDateDisplay.textContent = '날짜를 선택해주세요.';
-                dailyRecordsEl.innerHTML = ''; // Clear records when no date is selected
+                dailyRecordsEl.innerHTML = '';
                 startTimeInput.value = '09:00';
                 endTimeInput.value = '18:00';
             }
@@ -643,14 +656,12 @@
                 const durationText = secondsToHoursMinutes(actualWorkSeconds);
                 const nightShiftText = secondsToHoursMinutes(nightShiftSeconds);
 
-                // 일별 기록 옆에는 순수 기본 시급에 대한 급여 + 해당 기록의 야간/휴일 가산분만 표시
-                let recordPayComponent = (actualWorkSeconds / 3600) * HOURLY_RATE; // 기본 시간 계산
-                recordPayComponent += (nightShiftSeconds / 3600) * HOURLY_RATE * 0.5; // 야간근로수당 가산
+                let recordPayComponent = (actualWorkSeconds / 3600) * HOURLY_RATE;
+                recordPayComponent += (nightShiftSeconds / 3600) * HOURLY_RATE * 0.5;
 
                 const isHoliday = holidays.includes(date);
                 if (isHoliday) {
                     let holidayPremiumPayComponent = (actualWorkSeconds / 3600) * HOURLY_RATE * 0.5;
-                    // 휴일 8시간 초과 추가 가산은 월별 요약에서 총합으로 계산하는 것이 정확하므로, 여기서는 제외.
                     recordPayComponent += holidayPremiumPayComponent;
                 }
 
@@ -695,20 +706,19 @@
             allAttendanceRecords[selectedDate].push(newRecord);
             saveRecords();
             renderDailyRecords(selectedDate);
-            renderCalendar(); // Re-render calendar to update work hours/pay on the day
+            renderCalendar();
             showMessageBox('기록이 추가되었습니다.');
         }
 
         function deleteRecord(date, index) {
             if (allAttendanceRecords[date] && allAttendanceRecords[date].length > index) {
                 allAttendanceRecords[date].splice(index, 1);
-                // If no records left for the day, delete the date entry
                 if (allAttendanceRecords[date].length === 0) {
                     delete allAttendanceRecords[date];
                 }
                 saveRecords();
                 renderDailyRecords(date);
-                renderCalendar(); // Re-render calendar to update work hours/pay on the day
+                renderCalendar();
                 showMessageBox('기록이 삭제되었습니다.');
             }
         }
@@ -727,37 +737,33 @@
             return { totalActualWorkSeconds, totalNightShiftSeconds };
         }
 
-        // 일별 급여는 월별 요약에서 기본급과 연장 수당을 분리하므로,
-        // 여기서는 해당 일에 발생한 가산 수당 (야간, 휴일)만 계산하여 반환
         function calculateTotalPayForDay(date) {
             const isHoliday = holidays.includes(date);
             const { totalActualWorkSeconds, totalNightShiftSeconds } = calculateTotalDailyWork(date);
 
-            let dayAdditionalPay = 0; // 이 날짜 자체에서 발생하는 추가 수당 (야간, 휴일)
+            let dayAdditionalPay = 0;
 
-            dayAdditionalPay += (totalNightShiftSeconds / 3600) * HOURLY_RATE * 0.5; // 야간근로수당 (가산분)
+            dayAdditionalPay += (totalNightShiftSeconds / 3600) * HOURLY_RATE * 0.5;
 
             if (isHoliday) {
-                // 휴일근로수당: 기본 1.5배 (기본 1배는 고정 기본급과 월별 초과 OT 계산에 포함되므로, 여기서는 0.5배 가산분만 계산)
                 let holidayPremiumPayComponent = (totalActualWorkSeconds / 3600) * HOURLY_RATE * 0.5;
-                if (totalActualWorkSeconds > 8 * 3600) { // 휴일 8시간 초과시 추가 0.5배 가산
+                if (totalActualWorkSeconds > 8 * 3600) {
                     holidayPremiumPayComponent += ((totalActualWorkSeconds - (8 * 3600)) / 3600) * HOURLY_RATE * 0.5;
                 }
                 dayAdditionalPay += holidayPremiumPayComponent;
             }
-            // 선택적 근로제이므로 일별 8시간 초과 연장근로는 여기서 계산하지 않음. 월별 총 시간으로 계산.
 
             return dayAdditionalPay;
         }
 
         function calculateWeeklyAllowance(monthlyRecords) {
-            const weeklyAllowanceDays = {}; // Stores booleans per week for allowance eligibility
+            const weeklyAllowanceDays = {};
 
             for (const dateStr in monthlyRecords) {
                 const date = new Date(dateStr);
-                const dayOfWeek = date.getDay(); // 0: Sunday, 6: Saturday
+                const dayOfWeek = date.getDay();
                 const weekStartDate = new Date(date);
-                weekStartDate.setDate(date.getDate() - dayOfWeek); // Go back to Sunday
+                weekStartDate.setDate(date.getDate() - dayOfWeek);
 
                 const weekKey = formatDate(weekStartDate);
 
@@ -773,20 +779,20 @@
             for (const weekKey in weeklyAllowanceDays) {
                 const weekData = weeklyAllowanceDays[weekKey];
                 if (weekData.totalWorkSeconds >= WEEKLY_WORK_HOURS_FOR_ALLOWANCE * 3600) {
-                    totalAllowancePay += (8 * HOURLY_RATE); // 주휴수당은 8시간분 시급
+                    totalAllowancePay += (8 * HOURLY_RATE);
                 }
             }
             return totalAllowancePay;
         }
 
-        // NEW: 해당 월의 평일(소정근로일) 수를 계산하는 함수
+        // 해당 월의 평일(소정근로일) 수를 계산하는 함수
         function getStandardWorkdaysInMonth(year, month, holidays) {
             let workdays = 0;
-            const daysInMonth = new Date(year, month + 1, 0).getDate(); // 해당 월의 총 일수
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
 
             for (let i = 1; i <= daysInMonth; i++) {
                 const date = new Date(year, month, i);
-                const dayOfWeek = date.getDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+                const dayOfWeek = date.getDay();
                 const formattedDate = formatDate(date);
 
                 // 일요일(0), 토요일(6), 공휴일은 제외
@@ -800,14 +806,14 @@
 
         function calculateMonthlySummary() {
             let totalMonthlyActualWorkSeconds = 0;
-            let totalMonthlyNightPayComponent = 0; // 야간 수당만 (가산분)
-            let totalMonthlyHolidayPayComponent = 0; // 휴일 수당만 (가산분)
+            let totalMonthlyNightPayComponent = 0;
+            let totalMonthlyHolidayPayComponent = 0;
             let totalMonthlyWeeklyAllowance = 0;
-            let totalMonthlyOvertimePay = 0; // 연장 수당 (소정근로시간 초과분)
+            let totalMonthlyOvertimePay = 0;
 
             const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
-            const currentMonthRecords = {}; // Filter records for current month
+            const currentMonthRecords = {};
             for (let i = 1; i <= daysInCurrentMonth; i++) {
                 const date = new Date(currentYear, currentMonth, i);
                 const formattedDate = formatDate(date);
@@ -817,15 +823,13 @@
                     const { totalActualWorkSeconds, totalNightShiftSeconds } = calculateTotalDailyWork(formattedDate);
                     const isHoliday = holidays.includes(formattedDate);
 
-                    totalMonthlyActualWorkSeconds += totalActualWorkSeconds; // 월 총 순수 근무 시간 합산
+                    totalMonthlyActualWorkSeconds += totalActualWorkSeconds;
 
-                    // 야간 수당 계산 (가산분만)
                     totalMonthlyNightPayComponent += (totalNightShiftSeconds / 3600) * HOURLY_RATE * 0.5;
 
-                    // 휴일 수당 계산 (가산분만)
                     if (isHoliday) {
-                        let holidayPremium = (totalActualWorkSeconds / 3600) * HOURLY_RATE * 0.5; // 기본 휴일 가산 0.5배
-                        if (totalActualWorkSeconds > 8 * 3600) { // 휴일 8시간 초과시 추가 0.5배 가산
+                        let holidayPremium = (totalActualWorkSeconds / 3600) * HOURLY_RATE * 0.5;
+                        if (totalActualWorkSeconds > 8 * 3600) {
                             holidayPremium += ((totalActualWorkSeconds - (8 * 3600)) / 3600) * HOURLY_RATE * 0.5;
                         }
                         totalMonthlyHolidayPayComponent += holidayPremium;
@@ -833,26 +837,22 @@
                 }
             }
 
-            // 주휴 수당 계산
             totalMonthlyWeeklyAllowance = calculateWeeklyAllowance(currentMonthRecords);
 
-            // --- 선택적 근로제에 따른 기본급 및 연장 수당 계산 ---
             // 기본급은 FIXED_MONTHLY_BASE_PAY로 고정
             let currentMonthBasePay = FIXED_MONTHLY_BASE_PAY;
 
             // 해당 월의 소정근로시간 (동적 계산)
             const standardWorkdays = getStandardWorkdaysInMonth(currentYear, currentMonth, holidays);
-            const monthlyStandardWorkHours = standardWorkdays * 8; // 월 소정 근로시간 (시간)
-            const monthlyStandardWorkSeconds = monthlyStandardWorkHours * 3600; // 월 소정 근로시간 (초)
+            const monthlyStandardWorkHours = standardWorkdays * 8;
+            const monthlyStandardWorkSeconds = monthlyStandardWorkHours * 3600;
 
             // 총 실제 근무 시간이 해당 월의 소정근로시간을 초과하는 경우 연장 수당 계산
             if (totalMonthlyActualWorkSeconds > monthlyStandardWorkSeconds) {
                 const overtimeSeconds = totalMonthlyActualWorkSeconds - monthlyStandardWorkSeconds;
-                // 초과분에 대해서는 1.5배 전체를 연장 수당으로 지급
                 totalMonthlyOvertimePay = (overtimeSeconds / 3600) * HOURLY_RATE * 1.5;
             }
 
-            // 최종 총 예상 급여
             let totalMonthlyExpectedPay = currentMonthBasePay +
                                           totalMonthlyOvertimePay +
                                           totalMonthlyNightPayComponent +
@@ -862,7 +862,7 @@
             // Format for display
             const formattedMonthlyBasePay = Math.floor(currentMonthBasePay).toLocaleString();
             const formattedTotalHours = secondsToHoursMinutes(totalMonthlyActualWorkSeconds);
-            const formattedMonthlyStandardHours = `${monthlyStandardWorkHours}시간`; // 월 소정근로시간 표시
+            const formattedMonthlyStandardHours = `${monthlyStandardWorkHours}시간`;
             const formattedTotalAllowance = Math.floor(totalMonthlyWeeklyAllowance).toLocaleString();
             const formattedTotalOvertime = Math.floor(totalMonthlyOvertimePay).toLocaleString();
             const formattedTotalNight = Math.floor(totalMonthlyNightPayComponent).toLocaleString();
@@ -873,7 +873,7 @@
             monthlySummaryMonth.textContent = `${currentYear}년 ${currentMonth + 1}월`;
             monthlyBasePay.textContent = `${formattedMonthlyBasePay}원`;
             totalMonthlyHours.textContent = formattedTotalHours;
-            monthlyStandardHoursDisplay.textContent = formattedMonthlyStandardHours; // 월 소정근로시간 표시 업데이트
+            monthlyStandardHoursDisplay.textContent = formattedMonthlyStandardHours;
             totalMonthlyWeeklyAllowance.textContent = `${formattedTotalAllowance}원`;
             totalMonthlyOvertimePay.textContent = `${formattedTotalOvertime}원`;
             totalMonthlyNightPay.textContent = `${formattedTotalNight}원`;
@@ -896,8 +896,12 @@
                 allAttendanceRecords = JSON.parse(savedRecords);
             }
             if (savedHolidays) {
-                holidays = JSON.parse(savedHolidays);
+                // 기존 저장된 공휴일이 있으면 로드하고, 새로운 2025년 공휴일과 중복 제거하여 합침
+                const loadedHolidays = JSON.parse(savedHolidays);
+                holidays = Array.from(new Set([...holidays, ...loadedHolidays]));
             }
+            // holidays 배열에 2025년 공휴일이 이미 하드코딩 되어있으므로, 중복 방지를 위해 Set을 사용
+            holidays = Array.from(new Set(holidays));
         }
 
         // --- Event Listeners ---
@@ -951,6 +955,7 @@
                         holidays.push(date);
                     }
                 });
+                holidays = Array.from(new Set(holidays)); // 중복 제거
                 showMessageBox('공휴일이 저장되었습니다.');
             }
             saveRecords();
@@ -965,7 +970,7 @@
                 showAlertBox(`다음 날짜 형식 오류: ${invalidDates.join(', ')}\n올바른 형식은 YYYY-MM-DD 입니다.`);
             } else {
                 holidays = holidays.filter(holiday => !inputDates.includes(holiday));
-                showMessageBox('공휴일이 저장되었습니다.');
+                showMessageBox('공휴일이 삭제되었습니다.');
             }
             saveRecords();
             renderCalendar();
@@ -977,6 +982,8 @@
             if (confirmed) {
                 allAttendanceRecords = {};
                 selectedDate = null;
+                // 공휴일은 초기화하지 않고 그대로 유지 (필요 시 수동 삭제)
+                // holidays = []; // 만약 공휴일도 초기화하고 싶다면 이 줄의 주석을 해제하세요.
                 saveRecords();
                 renderCalendar();
                 updateSelectedDateDisplay();
