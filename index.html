@@ -236,6 +236,7 @@
             <div class="mt-4 flex flex-wrap gap-2">
                 <input type="time" id="startTime" class="p-2 border rounded-md w-full sm:w-auto flex-grow" value="08:00">
                 <input type="time" id="endTime" class="p-2 border rounded-md w-full sm:w-auto flex-grow" value="17:00">
+                <input type="checkbox" id="isNextDay" class="ml-2"> <label for="isNextDay" class="text-gray-700">익일</label>
                 <button id="addRecordBtn" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors w-full sm:w-auto">기록 추가</button>
             </div>
              <div class="mt-4 flex flex-wrap gap-2">
@@ -330,7 +331,7 @@
 
         let currentMonth = new Date().getMonth();
         let currentYear = new Date().getFullYear();
-        let selectedDate = null; // YYYY-MM-DD format
+        let selectedDate = null; //YYYY-MM-DD format
 
         // --- DOM Elements ---
         const calendarEl = document.getElementById('calendar');
@@ -341,6 +342,7 @@
         const dailyRecordsEl = document.getElementById('dailyRecords');
         const startTimeInput = document.getElementById('startTime');
         const endTimeInput = document.getElementById('endTime');
+        const isNextDayCheckbox = document.getElementById('isNextDay'); // NEW: 익일 체크박스
         const addRecordBtn = document.getElementById('addRecordBtn');
         const totalMonthlyWorkBtn = document.getElementById('totalMonthlyWorkBtn');
         const toggleHolidayModeBtn = document.getElementById('toggleHolidayModeBtn');
@@ -424,10 +426,10 @@
         }
 
         function formatDate(date) {
-            const yyyy = date.getFullYear();
+            const APAC = date.getFullYear();
             const mm = String(date.getMonth() + 1).padStart(2, '0');
             const dd = String(date.getDate()).padStart(2, '0');
-            return `${yyyy}-${mm}-${dd}`;
+            return `${APAC}-${mm}-${dd}`;
         }
 
         function timeToSeconds(timeStr) {
@@ -443,7 +445,7 @@
             return `${hours}시간 ${minutes}분`;
         }
         
-        // NEW: Function to display only hours for calendar cells
+        // Function to display only hours for calendar cells
         function secondsToHoursCompact(totalSeconds) {
             if (totalSeconds < 0) totalSeconds = 0;
             const hours = Math.floor(totalSeconds / 3600);
@@ -455,27 +457,19 @@
             return totalSeconds / 3600;
         }
 
-        function calculateDurationSecondsRaw(startTimeStr, endTimeStr) {
-            let startSec = timeToSeconds(startTimeStr);
-            let endSec = timeToSeconds(endTimeStr);
-
-            let duration = endSec - startSec;
-            if (duration < 0) { // Overnight shift
-                duration += 24 * 3600; // Add 24 hours in seconds
-            }
-            return duration;
-        }
-
-        function getIntervalOverlap(startSec1, endSec1, startSec2, endSec2) {
-            let effectiveEndSec1 = endSec1;
-            if (endSec1 < startSec1) { // Work interval crosses midnight
-                effectiveEndSec1 += 24 * 3600;
-            }
-
-            const maxStart = Math.max(startSec1, startSec2);
-            const minEnd = Math.min(effectiveEndSec1, endSec2);
-
-            return Math.max(0, minEnd - maxStart);
+        /**
+         * Calculates the overlap duration between two linear time intervals.
+         * Assumes intervals are [start, end] where start <= end.
+         * @param {number} start1 - Start time of the first interval in seconds from midnight.
+         * @param {number} end1 - End time of the first interval in seconds from midnight.
+         * @param {number} start2 - Start time of the second interval in seconds from midnight.
+         * @param {number} end2 - End time of the second interval in seconds from midnight.
+         * @returns {number} Overlap duration in seconds.
+         */
+        function getLinearIntervalOverlap(start1, end1, start2, end2) {
+            const overlapStart = Math.max(start1, start2);
+            const overlapEnd = Math.min(end1, end2);
+            return Math.max(0, overlapEnd - overlapStart);
         }
 
         function calculateNightShiftSecondsInternal(startTimeStr, endTimeStr) {
@@ -491,18 +485,18 @@
 
             // Case 1: Work within the same day (no midnight crossing)
             if (endSec >= startSec) {
-                nightDuration += getIntervalOverlap(startSec, endSec, NIGHT_START_1, NIGHT_END_1);
-                nightDuration += getIntervalOverlap(startSec, endSec, NIGHT_START_2, NIGHT_END_2);
+                nightDuration += getLinearIntervalOverlap(startSec, endSec, NIGHT_START_1, NIGHT_END_1);
+                nightDuration += getLinearIntervalOverlap(startSec, endSec, NIGHT_START_2, NIGHT_END_2);
             } else { // Case 2: Work crosses midnight (overnight shift)
                 // Overlap with 22:00 to 24:00 (on the first day)
-                nightDuration += getIntervalOverlap(startSec, timeToSeconds('24:00:00'), NIGHT_START_1, NIGHT_END_1);
+                nightDuration += getLinearIntervalOverlap(startSec, timeToSeconds('24:00:00'), NIGHT_START_1, NIGHT_END_1);
                 // Overlap with 00:00 to 06:00 (on the second day)
-                nightDuration += getIntervalOverlap(timeToSeconds('00:00:00'), endSec, NIGHT_START_2, NIGHT_END_2);
+                nightDuration += getLinearIntervalOverlap(timeToSeconds('00:00:00'), endSec, NIGHT_START_2, NIGHT_END_2);
             }
             return nightDuration;
         }
 
-        function calculateWorkAndShiftDurations(startTimeStr, endTimeStr) {
+        function calculateWorkAndShiftDurations(startTimeStr, endTimeStr, isNextDay) {
             if (!startTimeStr || !endTimeStr) {
                 return { actualWorkSeconds: 0, nightShiftSeconds: 0, overtimeSeconds: 0 };
             }
@@ -510,42 +504,57 @@
             let startSec = timeToSeconds(startTimeStr);
             let endSec = timeToSeconds(endTimeStr);
 
-            let totalElapsed = calculateDurationSecondsRaw(startTimeStr, endTimeStr);
+            // Calculate total elapsed duration based on isNextDay flag
+            let totalElapsedSeconds;
+            if (isNextDay) {
+                // If '익일' is checked, the end time is on the next day.
+                // Duration is from startSec to midnight, plus from midnight to endSec.
+                totalElapsedSeconds = (24 * 3600 - startSec) + endSec;
+                // Special case: if start and end times are identical (e.g., 08:00 to 08:00 next day), it's a full 24-hour shift.
+                if (startSec === endSec && (startTimeStr !== '00:00' || endTimeStr !== '00:00')) { // Exclude 00:00 to 00:00 as a 24hr shift unless explicitly intended
+                    totalElapsedSeconds = 24 * 3600;
+                }
+            } else {
+                // If '익일' is not checked, it's a same-day shift.
+                // If end time is before start time, it's an invalid same-day input, so duration is 0.
+                totalElapsedSeconds = Math.max(0, endSec - startSec);
+            }
 
             let fixedBreaksDeducted = 0;
 
-            const FIXED_BREAK_INTERVALS_NON_OVERNIGHT = [
-                { start: timeToSeconds('12:00:00'), end: timeToSeconds('13:00:00') }, // Lunch (점심)
-                { start: timeToSeconds('20:00:00'), end: timeToSeconds('20:30:00') }  // Dinner (석식)
+            // Define all possible break intervals for a 24-hour cycle, relative to 00:00
+            const BREAK_INTERVALS_RELATIVE = [
+                { start: timeToSeconds('12:00:00'), end: timeToSeconds('13:00:00') }, // Lunch
+                { start: timeToSeconds('20:00:00'), end: timeToSeconds('20:30:00') }, // Dinner
+                { start: timeToSeconds('00:00:00'), end: timeToSeconds('00:30:00') }, // Late Night
+                { start: timeToSeconds('08:00:00'), end: timeToSeconds('08:30:00') }  // Breakfast
             ];
 
-            for (const breakInterval of FIXED_BREAK_INTERVALS_NON_OVERNIGHT) {
-                fixedBreaksDeducted += getIntervalOverlap(startSec, endSec, breakInterval.start, breakInterval.end);
+            // To correctly apply breaks for overnight shifts, we need to consider the work interval
+            // as a continuous span of seconds starting from the 'startSec' of the first day.
+            const workIntervalEndOnContinuousTimeline = startSec + totalElapsedSeconds;
+
+            for (const breakInterval of BREAK_INTERVALS_RELATIVE) {
+                // Check overlap for the break on the current day
+                fixedBreaksDeducted += getLinearIntervalOverlap(startSec, workIntervalEndOnContinuousTimeline, breakInterval.start, breakInterval.end);
+
+                // If the work extends into the next day, check overlap for the break on the next day
+                // by shifting the break interval by 24 hours.
+                if (workIntervalEndOnContinuousTimeline > 24 * 3600) {
+                    fixedBreaksDeducted += getLinearIntervalOverlap(startSec, workIntervalEndOnContinuousTimeline, breakInterval.start + 24 * 3600, breakInterval.end + 24 * 3600);
+                }
             }
 
-            const BREAKFAST_START = timeToSeconds('08:00:00');
-            const BREAKFAST_END = timeToSeconds('08:30:00');
-            // If the shift spans midnight, consider breakfast break
-            if (totalElapsed > 0 && endSec < startSec) { 
-                fixedBreaksDeducted += getIntervalOverlap(startSec, endSec + 24 * 3600, BREAKFAST_START + 24 * 3600, BREAKFAST_END + 24 * 3600);
-            }
-            
-            const LATE_NIGHT_START = timeToSeconds('00:00:00');
-            const LATE_NIGHT_END = timeToSeconds('00:30:00');
-             // If the shift spans midnight, consider late night break
-            if (totalElapsed > 0 && endSec < startSec) { 
-                fixedBreaksDeducted += getIntervalOverlap(startSec, endSec + 24 * 3600, LATE_NIGHT_START + 24 * 3600, LATE_NIGHT_END + 24 * 3600);
-            }
+            fixedBreaksDeducted = Math.min(fixedBreaksDeducted, totalElapsedSeconds);
 
-            fixedBreaksDeducted = Math.min(fixedBreaksDeducted, totalElapsed);
-            let actualWorkSeconds = totalElapsed - fixedBreaksDeducted;
+            let actualWorkSeconds = totalElapsedSeconds - fixedBreaksDeducted;
             actualWorkSeconds = Math.max(0, actualWorkSeconds);
 
+            // Night shift calculation still uses original start/end times as it's based on clock time
             let nightShiftSeconds = calculateNightShiftSecondsInternal(startTimeStr, endTimeStr);
             nightShiftSeconds = Math.min(nightShiftSeconds, actualWorkSeconds); // Night shift cannot exceed actual work
 
             let overtimeSeconds = 0;
-            // Overtime calculation: if actual work exceeds 8 hours (28800 seconds)
             const STANDARD_WORK_DAY_SECONDS = 8 * 3600;
             if (actualWorkSeconds > STANDARD_WORK_DAY_SECONDS) {
                 overtimeSeconds = actualWorkSeconds - STANDARD_WORK_DAY_SECONDS;
@@ -658,10 +667,12 @@
                     // Pre-fill inputs with the last record's times
                     startTimeInput.value = records[records.length - 1].start;
                     endTimeInput.value = records[records.length - 1].end;
+                    isNextDayCheckbox.checked = records[records.length - 1].isNextDay || false; // Set checkbox state
                 } else {
                     // Changed default times to 08:00 - 17:00
                     startTimeInput.value = '08:00';
                     endTimeInput.value = '17:00';
+                    isNextDayCheckbox.checked = false; // Default to false
                 }
             } else {
                 selectedDateDisplay.textContent = '날짜를 선택해주세요.';
@@ -669,6 +680,7 @@
                 // Changed default times to 08:00 - 17:00
                 startTimeInput.value = '08:00';
                 endTimeInput.value = '17:00';
+                isNextDayCheckbox.checked = false; // Default to false
             }
         }
 
@@ -684,10 +696,7 @@
             }
 
             records.forEach((record, index) => {
-                const recordEl = document.createElement('div');
-                recordEl.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'bg-white', 'rounded-md', 'shadow-sm', 'border', 'border-gray-200');
-
-                const { actualWorkSeconds, nightShiftSeconds, overtimeSeconds } = calculateWorkAndShiftDurations(record.start, record.end);
+                const { actualWorkSeconds, nightShiftSeconds, overtimeSeconds } = calculateWorkAndShiftDurations(record.start, record.end, record.isNextDay || false); // Pass isNextDay
                 const durationText = secondsToHoursMinutes(actualWorkSeconds);
                 const nightShiftText = secondsToHoursMinutes(nightShiftSeconds);
                 const overtimeText = secondsToHoursMinutes(overtimeSeconds);
@@ -713,10 +722,11 @@
                     recordPayComponent += holidayPremiumPayComponent;
                 }
                 
-                // Remove existing break-related text and add combined details for clarity
+                const recordEl = document.createElement('div');
+                recordEl.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'bg-white', 'rounded-md', 'shadow-sm', 'border', 'border-gray-200');
                 recordEl.innerHTML = `
                     <div class="flex-grow">
-                        <p class="font-medium text-gray-700">${record.start} - ${record.end}</p>
+                        <p class="font-medium text-gray-700">${record.start} - ${record.end}${record.isNextDay ? ' (익일)' : ''}</p>
                         <p class="text-sm text-gray-500">순 근무: ${durationText}</p>
                         <p class="text-sm text-gray-500">
                             ${nightShiftSeconds > 0 ? `야간: ${nightShiftText} ` : ''}
@@ -745,13 +755,25 @@
 
             const startTime = startTimeInput.value;
             const endTime = endTimeInput.value;
+            const isNextDayChecked = isNextDayCheckbox.checked;
 
             if (!startTime || !endTime) {
                 showMessageBox('출근 시간과 퇴근 시간을 모두 입력해주세요.', true);
                 return;
             }
 
-            const newRecord = { start: startTime, end: endTime };
+            const newRecord = { start: startTime, end: endTime, isNextDay: isNextDayChecked };
+            const startSec = timeToSeconds(startTime);
+            const endSec = timeToSeconds(endTime);
+
+            // Provide specific feedback based on isNextDay checkbox and time input
+            if (isNextDayChecked) {
+                showMessageBox('철야 근무로 기록됩니다.');
+            } else if (endSec < startSec) {
+                showMessageBox('퇴근 시간이 출근 시간보다 빠릅니다. 익일 체크박스를 확인해주세요. 현재는 당일 근무로 계산됩니다.', true);
+            } else {
+                showMessageBox('기록이 추가되었습니다.');
+            }
 
             if (!allAttendanceRecords[selectedDate]) {
                 allAttendanceRecords[selectedDate] = [];
@@ -760,7 +782,6 @@
             saveRecords();
             renderDailyRecords(selectedDate);
             renderCalendar();
-            showMessageBox('기록이 추가되었습니다.');
         }
 
         function deleteRecord(date, index) {
@@ -783,7 +804,7 @@
             let totalOvertimeSeconds = 0;
 
             records.forEach(record => {
-                const { actualWorkSeconds, nightShiftSeconds, overtimeSeconds } = calculateWorkAndShiftDurations(record.start, record.end);
+                const { actualWorkSeconds, nightShiftSeconds, overtimeSeconds } = calculateWorkAndShiftDurations(record.start, record.end, record.isNextDay || false); // Pass isNextDay
                 totalActualWorkSeconds += actualWorkSeconds;
                 totalNightShiftSeconds += nightShiftSeconds;
                 totalOvertimeSeconds += overtimeSeconds;
@@ -829,7 +850,6 @@
 
             // Calculate weekly hours for 주휴수당
             let weeklyWorkHours = 0;
-            let currentWeekNumber = 0; // To track weeks for allowance calculation
             const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
             const firstDayOfWeekOfMonth = firstDayOfMonth.getDay(); // 0 for Sunday, 1 for Monday
 
@@ -838,18 +858,29 @@
                 const formattedDate = formatDate(date);
                 const dayOfWeek = date.getDay(); // 0: Sunday, 6: Saturday
 
-                const { totalActualWorkSeconds, totalNightShiftSeconds, totalOvertimeSeconds } = calculateTotalDailyWork(formattedDate);
+                // Get daily work details including isNextDay for each record
+                const dailyRecordsForSummary = allAttendanceRecords[formattedDate] || [];
+                let dailyActualWorkSeconds = 0;
+                let dailyNightShiftSeconds = 0;
+                let dailyOvertimeSeconds = 0;
+
+                dailyRecordsForSummary.forEach(record => {
+                    const { actualWorkSeconds, nightShiftSeconds, overtimeSeconds } = calculateWorkAndShiftDurations(record.start, record.end, record.isNextDay || false);
+                    dailyActualWorkSeconds += actualWorkSeconds;
+                    dailyNightShiftSeconds += nightShiftSeconds;
+                    dailyOvertimeSeconds += overtimeSeconds;
+                });
                 
-                totalMonthlyActualWorkSeconds += totalActualWorkSeconds;
-                totalMonthlyNightPay += secondsToHoursDecimal(totalNightShiftSeconds) * HOURLY_RATE * 0.5;
-                totalMonthlyOvertimePay += secondsToHoursDecimal(totalOvertimeSeconds) * HOURLY_RATE * 0.5;
+                totalMonthlyActualWorkSeconds += dailyActualWorkSeconds;
+                totalMonthlyNightPay += secondsToHoursDecimal(dailyNightShiftSeconds) * HOURLY_RATE * 0.5;
+                totalMonthlyOvertimePay += secondsToHoursDecimal(dailyOvertimeSeconds) * HOURLY_RATE * 0.5;
 
                 const isHoliday = holidays.includes(formattedDate);
                 const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
 
                 if (isHoliday || isWeekend) {
-                    const standardHolidayWorkSeconds = Math.min(totalActualWorkSeconds, 8 * 3600);
-                    const extendedHolidayWorkSeconds = Math.max(0, totalActualWorkSeconds - 8 * 3600);
+                    const standardHolidayWorkSeconds = Math.min(dailyActualWorkSeconds, 8 * 3600);
+                    const extendedHolidayWorkSeconds = Math.max(0, dailyActualWorkSeconds - 8 * 3600);
                     totalMonthlyHolidayPay += secondsToHoursDecimal(standardHolidayWorkSeconds) * HOURLY_RATE * 0.5;
                     totalMonthlyHolidayPay += secondsToHoursDecimal(extendedHolidayWorkSeconds) * HOURLY_RATE * 1.0;
                 }
@@ -867,7 +898,7 @@
                     weeklyWorkHours = 0;
                 }
 
-                weeklyWorkHours += secondsToHoursDecimal(totalActualWorkSeconds);
+                weeklyWorkHours += secondsToHoursDecimal(dailyActualWorkSeconds);
                 
                 // If it's Sunday (end of week) or the last day of the month, calculate weekly allowance for the current week
                 if (dayOfWeek === 0 || i === daysInMonth) {
@@ -979,7 +1010,7 @@
         addHolidayBtn.addEventListener('click', () => {
             const inputDates = holidayInput.value.split(',').map(d => d.trim()).filter(d => d);
             const addedCount = inputDates.reduce((count, dateStr) => {
-                // Basic format check YYYY-MM-DD
+                // Basic format check APAC-MM-DD
                 if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !holidays.includes(dateStr)) {
                     holidays.push(dateStr);
                     return count + 1;
