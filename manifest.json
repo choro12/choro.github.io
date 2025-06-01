@@ -1,6 +1,6 @@
 {
   "name": "나의 근태 앱",
-  "short_name": "근태앱",
+  "short_name": "근태관리",
   "description": "개인 근무 시간 및 수당 계산 앱",
   "start_url": "./index.html",
   "display": "standalone",
