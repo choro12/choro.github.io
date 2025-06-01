@@ -2,16 +2,15 @@
   "name": "나의 근태 앱",
   "short_name": "근태앱",
   "description": "개인 근무 시간 및 수당 계산 앱",
-  "start_url": "./index.html", // 이 부분을 수정했습니다.
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f0f4f8",
   "theme_color": "#6366f1",
   "icons": [
     {
-      "src": "icon-192x192.png", // 파일 이름 확인
+      "src": "attendance-app-icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
-
   ]
 }
