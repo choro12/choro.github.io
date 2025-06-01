@@ -8,9 +8,14 @@
   "theme_color": "#6366f1",
   "icons": [
     {
-      "src": "icon-192x192.png",
-      "sizes": "192x192",
+      "src": "attendance-app-icon-256.png", // 256x256 아이콘 파일 이름으로 변경
+      "sizes": "256x256", // 256x256 픽셀로 변경
       "type": "image/png"
     },
+    {
+      "src": "attendance-app-icon-512.png", // 512x512 아이콘 파일 이름 (이전과 동일)
+      "sizes": "512x512", // 512x512 픽셀 (이전과 동일)
+      "type": "image/png"
+    }
   ]
 }
