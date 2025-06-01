@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개인 근태 관리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192x192.png">
+    <meta name="theme-color" content="#6366f1">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light blue-gray background */
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            max-width: 900px; /* Wider for calendar */
+            width: 100%;
+            background-color: #ffffff;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid #e2e8f0;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+        }
+        .calendar-header div {
+            text-align: center;
+            font-weight: 600;
+            color: #4a5568;
+            padding: 8px 0;
+            background-color: #e2e8f0;
+            border-radius: 8px;
+        }
+        .calendar-day {
+            min-height: 80px; /* Ensure enough space for content */
+            padding: 8px;
+            border-radius: 8px;
+            background-color: #f8fafc;
+            border: 1px solid #edf2f7;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start; /* Align content to top */
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            position: relative;
+        }
+        .calendar-day.inactive {
+            background-color: #edf2f7;
+            color: #a0aec0;
+            cursor: default;
+        }
+        .calendar-day:not(.inactive):hover {
+            background-color: #e0e7ff; /* Light blue on hover */
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        .calendar-day.has-record {
+            background-color: #d1fae5; /* Light green for records */
+            border-color: #34d399;
+        }
+        .calendar-day.selected {
+            background-color: #6366f1; /* Indigo for selected day */
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+            border-color: #4338ca;
+        }
+        .calendar-day.selected .day-number,
+        .calendar-day.selected .daily-duration {
+            color: white; /* Ensure text is white when selected */
+        }
+        .day-number {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 4px;
+            color: #2d3748;
+        }
+        .daily-duration {
+            font-size: 0.75rem; /* Smaller font for duration */
+            color: #4a5568; /* Darker gray for duration */
+            font-weight: 500;
+            text-align: center;
+            white-space: nowrap; /* Prevent wrapping */
+            overflow: hidden;
+            text-overflow: ellipsis; /* Add ellipsis if it overflows */
+            max-width: 100%; /* Ensure it fits */
+        }
+        .calendar-day.selected .daily-duration {
+            color: white;
+        }
+
+
+        /* New styles for Saturday and Sunday */
+        .calendar-day.saturday {
+            background-color: #e0f2fe; /* Light blue for Saturday */
+            border-color: #93c5fd;
+            color: #2563eb; /* Darker blue text */
+        }
+        .calendar-day.sunday {
+            background-color: #fee2e2; /* Light red for Sunday */
+            border-color: #fca5a5;
+            color: #dc2626; /* Darker red text */
+        }
+        /* Style for holidays (manual input) */
+        .calendar-day.holiday {
+            background-color: #fefcbf; /* Light yellow for holidays */
+            border-color: #fcd34d;
+            color: #d97706; /* Darker yellow/orange text */
+        }
+        /* Ensure selected state overrides weekend/holiday colors */
+        .calendar-day.saturday.selected,
+        .calendar-day.sunday.selected,
+        .calendar-day.holiday.selected {
+            background-color: #6366f1; /* Indigo for selected day */
+            color: white;
+        }
+        /* Ensure daily duration color is visible on weekend/holiday background */
+        .calendar-day.saturday .daily-duration,
+        .calendar-day.sunday .daily-duration,
+        .calendar-day.holiday .daily-duration {
+            color: #1a202c; /* Ensure it's readable */
+        }
+
+        /* Custom scrollbar for records list */
+        #dailyRecordsList::-webkit-scrollbar {
+            width: 8px;
+        }
+        #dailyRecordsList::-webkit-scrollbar-track {
+            background: #e2e8f0; /* Light gray track */
+            border-radius: 10px;
+        }
+        #dailyRecordsList::-webkit-scrollbar-thumb {
+            background: #94a3b8; /* Medium gray thumb */
+            border-radius: 10px;
+        }
+        #dailyRecordsList::-webkit-scrollbar-thumb:hover {
+            background: #64748b; /* Darker gray on hover */
+        }
+
+        /* Custom Alert/Message Box */
+        .message-box-overlay, .confirm-box-overlay, .edit-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 50;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .message-box-overlay.active, .confirm-box-overlay.active, .edit-modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .message-box-content, .confirm-box-content, .edit-modal-content {
+            background-color: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            padding: 24px;
+            width: 100%;
+            max-width: 384px;
+            text-align: center;
+            transform: scale(0.95);
+            opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        .message-box-overlay.active .message-box-content,
+        .confirm-box-overlay.active .confirm-box-content,
+        .edit-modal-overlay.active .edit-modal-content {
+            transform: scale(1);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-8">
+            개인 근태 관리
+        </h1>
+
+        <div class="flex justify-between items-center mb-6">
+            <button id="prevMonthBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white p-2 rounded-lg transition duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+            </button>
+            <h2 id="currentMonthYear" class="text-2xl font-semibold text-gray-700"></h2>
+            <button id="nextMonthBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white p-2 rounded-lg transition duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="calendar-header grid grid-cols-7 gap-1 sm:gap-2 text-sm sm:text-base mb-2">
+            <div>일</div>
+            <div>월</div>
+            <div>화</div>
+            <div>수</div>
+            <div>목</div>
+            <div>금</div>
+            <div>토</div>
+        </div>
+        <div id="calendarGrid" class="calendar-grid text-xs sm:text-sm">
+            </div>
+
+        <div id="monthlyTotalDisplay" class="text-center text-xl sm:text-2xl font-semibold text-gray-700 my-6 p-4 bg-gray-100 rounded-lg border border-gray-200">
+            이번 달 총 근무 시간: 로딩 중...
+        </div>
+
+        <hr class="my-8 border-gray-300">
+
+        <div class="mb-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+            <label for="holidayInput" class="block text-gray-700 text-sm font-bold mb-2">
+                공휴일 입력 (YYYY-MM-DD, 쉼표 또는 줄바꿈으로 구분):
+            </label>
+            <textarea id="holidayInput" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-24" placeholder="예: 2025-01-01, 2025-03-01"></textarea>
+            <button id="saveHolidaysBtn" class="mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                공휴일 저장
+            </button>
+        </div>
+
+        <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <h3 class="text-xl font-semibold text-gray-700 mb-2">추정 수당</h3>
+            <p class="text-gray-600 text-sm mb-1">소정 근로 시간: <span id="estimatedStandardHours" class="font-medium"></span></p>
+            <p class="text-gray-600 text-sm mb-1">시간당 통상 임금: <span id="estimatedHourlyWage" class="font-medium"></span></p>
+            <p class="text-gray-600 text-sm mb-1">추정 초과 근무 시간: <span id="estimatedOvertimeHours" class="font-medium"></span></p>
+            <p class="text-gray-600 text-sm mb-1">추정 초과 근무 수당: <span id="estimatedOvertimeAllowance" class="font-medium"></span></p>
+            <p class="text-gray-600 text-sm">추정 야간 근무 시간: <span id="estimatedNightShiftHours" class="font-medium"></span></p>
+            <p class="text-gray-600 text-sm">추정 야간 근무 수당: <span id="estimatedNightShiftAllowance" class="font-medium"></span></p>
+        </div>
+
+        <hr class="my-8 border-gray-300">
+
+        <div class="text-center mb-6">
+            <h3 id="selectedDateDisplay" class="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">
+                날짜를 선택해주세요.
+            </h3>
+            <div class="flex flex-col sm:flex-row justify-center gap-4 mb-6">
+                <button id="clockInBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                    출근 (Clock In)
+                </button>
+                <button id="clockOutBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                    퇴근 (Clock Out)
+                </button>
+            </div>
+        </div>
+
+        <h3 class="text-xl font-semibold text-gray-700 mb-4 text-center">
+            선택된 날짜의 기록
+        </h3>
+        <div id="dailyRecordsList" class="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-64 overflow-y-auto mb-6">
+            <p class="text-gray-500 text-center" id="noDailyRecordsMessage">선택된 날짜에 기록이 없습니다.</p>
+        </div>
+
+        <div class="text-center">
+            <button id="resetBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-5 rounded-xl shadow-md transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-gray-200">
+                모든 기록 초기화 (Reset All Records)
+            </button>
+        </div>
+
+        <div id="messageBox" class="message-box-overlay hidden">
+            <div class="message-box-content">
+                <p id="messageText" class="text-lg font-semibold text-gray-800 mb-4"></p>
+                <button id="messageBoxOkBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300">
+                    확인
+                </button>
+            </div>
+        </div>
+
+        <div id="confirmBox" class="confirm-box-overlay hidden">
+            <div class="confirm-box-content">
+                <p id="confirmText" class="text-lg font-semibold text-gray-800 mb-4">정말 초기화하시겠습니까?</p>
+                <div class="flex justify-center gap-4">
+                    <button id="confirmBoxYesBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-red-300">
+                        예
+                    </button>
+                    <button id="confirmBoxNoBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-gray-200">
+                        아니오
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="editRecordModal" class="edit-modal-overlay hidden">
+            <div class="edit-modal-content">
+                <h3 class="text-xl font-semibold text-gray-800 mb-4">기록 수정/삭제</h3>
+                <p class="text-gray-600 text-sm mb-4">날짜: <span id="editModalDate"></span></p>
+                <div class="mb-4 text-left">
+                    <label for="editClockIn" class="block text-gray-700 text-sm font-bold mb-2">출근 시간 (HH:MM:SS):</label>
+                    <input type="text" id="editClockIn" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="HH:MM:SS">
+                </div>
+                <div class="mb-4 text-left">
+                    <label for="editClockOut" class="block text-gray-700 text-sm font-bold mb-2">퇴근 시간 (HH:MM:SS):</label>
+                    <input type="text" id="editClockOut" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="HH:MM:SS">
+                </div>
+                <div class="flex flex-col sm:flex-row justify-center gap-4 mt-6">
+                    <button id="saveEditBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300">
+                        저장
+                    </button>
+                    <button id="deleteRecordBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-red-300">
+                        삭제
+                    </button>
+                    <button id="cancelEditBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-gray-200">
+                        취소
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Get DOM elements
+        const prevMonthBtn = document.getElementById('prevMonthBtn');
+        const nextMonthBtn = document.getElementById('nextMonthBtn');
+        const currentMonthYearDisplay = document.getElementById('currentMonthYear');
+        const calendarGrid = document.getElementById('calendarGrid');
+        const selectedDateDisplay = document.getElementById('selectedDateDisplay');
+        const clockInBtn = document.getElementById('clockInBtn');
+        const clockOutBtn = document.getElementById('clockOutBtn');
+        const dailyRecordsList = document.getElementById('dailyRecordsList');
+        const noDailyRecordsMessage = document.getElementById('noDailyRecordsMessage');
+        const resetBtn = document.getElementById('resetBtn');
+        const monthlyTotalDisplay = document.getElementById('monthlyTotalDisplay');
+
+        // Holiday input elements
+        const holidayInput = document.getElementById('holidayInput');
+        const saveHolidaysBtn = document.getElementById('saveHolidaysBtn');
+
+        // Allowance display elements
+        const estimatedStandardHours = document.getElementById('estimatedStandardHours');
+        const estimatedHourlyWage = document.getElementById('estimatedHourlyWage');
+        const estimatedOvertimeHours = document.getElementById('estimatedOvertimeHours');
+        const estimatedOvertimeAllowance = document.getElementById('estimatedOvertimeAllowance');
+        const estimatedNightShiftHours = document.getElementById('estimatedNightShiftHours');
+        const estimatedNightShiftAllowance = document.getElementById('estimatedNightShiftAllowance');
+
+        // Message box elements
+        const messageBox = document.getElementById('messageBox');
+        const messageText = document.getElementById('messageText');
+        const messageBoxOkBtn = document.getElementById('messageBoxOkBtn');
+
+        // Confirmation box elements
+        const confirmBox = document.getElementById('confirmBox');
+        const confirmText = document.getElementById('confirmText');
+        const confirmBoxYesBtn = document.getElementById('confirmBoxYesBtn');
+        const confirmBoxNoBtn = document.getElementById('confirmBoxNoBtn');
+
+        // Edit Record Modal elements
+        const editRecordModal = document.getElementById('editRecordModal');
+        const editModalDate = document.getElementById('editModalDate');
+        const editClockIn = document.getElementById('editClockIn');
+        const editClockOut = document.getElementById('editClockOut');
+        const saveEditBtn = document.getElementById('saveEditBtn');
+        const deleteRecordBtn = document.getElementById('deleteRecordBtn');
+        const cancelEditBtn = document.getElementById('cancelEditBtn');
+
+        // Global variables for calendar
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
+        let selectedDate = null; // YYYY-MM-DD format of the selected day
+
+        // Storage for all attendance records
+        // allAttendanceRecords = { "YYYY-MM-DD": [{ clockIn: "HH:MM:SS", clockOut: "HH:MM:SS", duration: "...", durationSeconds: NNN, nightShiftSeconds: NNN }], ... }
+        let allAttendanceRecords = {};
+
+        // Public holidays set
+        let publicHolidaysSet = new Set();
+
+        // Variables for editing a specific record
+        let currentEditingDate = null;
+        let currentEditingRecordIndex = -1;
+
+        // Constants for calculations
+        const BASIC_SALARY = 2214290; // 기본급 2,214,290원
+        const STANDARD_DAILY_HOURS_SECONDS = 8 * 3600; // 8 hours in seconds for standard workday
+
+        // Default 2025 Korean Public Holidays
+        const DEFAULT_HOLIDAYS_2025 = [
+            '2025-01-01', // 신정
+            '2025-01-28', // 설날
+            '2025-01-29', // 설날
+            '2025-01-30', // 설날
+            '2025-03-01', // 3.1절
+            '2025-05-05', // 어린이날
+            '2025-05-06', // 대체공휴일 (어린이날)
+            '2025-05-28', // 부처님오신날
+            '2025-06-06', // 현충일
+            '2025-08-15', // 광복절
+            '2025-10-03', // 개천절
+            '2025-10-08', // 한글날
+            '2025-12-25'  // 성탄절
+        ].join('\n'); // Use newline for textarea
+
+        // --- Utility Functions ---
+
+        /**
+         * Displays a custom message box.
+         * @param {string} message - The message to display.
+         */
+        function showMessageBox(message) {
+            messageText.textContent = message;
+            messageBox.classList.add('active');
+            messageBox.classList.remove('hidden'); // Ensure it's not hidden
+        }
+
+        /**
+         * Hides the custom message box.
+         */
+        function hideMessageBox() {
+            messageBox.classList.remove('active');
+            // Add 'hidden' after transition to ensure it's not clickable while fading
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 300); // Match CSS transition duration
+        }
+
+        /**
+         * Displays a custom confirmation box.
+         * @param {string} message - The confirmation message.
+         * @returns {Promise<boolean>} - Resolves to true if 'Yes', false if 'No'.
+         */
+        function showConfirmBox(message) {
+            confirmText.textContent = message;
+            confirmBox.classList.add('active');
+            confirmBox.classList.remove('hidden'); // Ensure it's not hidden
+
+            return new Promise((resolve) => {
+                const handleYes = () => {
+                    hideConfirmBox();
+                    resolve(true);
+                    confirmBoxYesBtn.removeEventListener('click', handleYes);
+                    confirmBoxNoBtn.removeEventListener('click', handleNo);
+                };
+                const handleNo = () => {
+                    hideConfirmBox();
+                    resolve(false);
+                    confirmBoxYesBtn.removeEventListener('click', handleYes);
+                    confirmBoxNoBtn.removeEventListener('click', handleNo);
+                };
+                confirmBoxYesBtn.addEventListener('click', handleYes);
+                confirmBoxNoBtn.addEventListener('click', handleNo);
+            });
+        }
+
+        /**
+         * Hides the custom confirmation box.
+         */
+        function hideConfirmBox() {
+            confirmBox.classList.remove('active');
+            // Add 'hidden' after transition to ensure it's not clickable while fading
+            setTimeout(() => {
+                confirmBox.classList.add('hidden');
+            }, 300); // Match CSS transition duration
+        }
+
+        // Event listener for message box OK button
+        messageBoxOkBtn.addEventListener('click', hideMessageBox);
+
+        /**
+         * Displays the edit record modal.
+         * @param {string} date - The date of the record.
+         * @param {number} index - The index of the record in the daily array.
+         */
+        function showEditRecordModal(date, index) {
+            currentEditingDate = date;
+            currentEditingRecordIndex = index;
+            const record = allAttendanceRecords[date][index];
+
+            editModalDate.textContent = formatDisplayDate(new Date(date));
+            editClockIn.value = record.clockIn || '';
+            editClockOut.value = record.clockOut || '';
+
+            editRecordModal.classList.add('active');
+            editRecordModal.classList.remove('hidden');
+        }
+
+        /**
+         * Hides the edit record modal.
+         */
+        function hideEditRecordModal() {
+            editRecordModal.classList.remove('active');
+            setTimeout(() => {
+                editRecordModal.classList.add('hidden');
+                currentEditingDate = null;
+                currentEditingRecordIndex = -1;
+            }, 300);
+        }
+
+        // Event listeners for edit modal buttons
+        cancelEditBtn.addEventListener('click', hideEditRecordModal);
+
+        saveEditBtn.addEventListener('click', () => {
+            if (currentEditingDate && currentEditingRecordIndex !== -1) {
+                const records = allAttendanceRecords[currentEditingDate];
+                const record = records[currentEditingRecordIndex];
+
+                const newClockIn = editClockIn.value.trim();
+                const newClockOut = editClockOut.value.trim();
+
+                // Basic validation for time format (HH:MM:SS)
+                const timeRegex = /^(?:2[0-3]|[01]?[0-9]):(?:[0-5]?[0-9]):(?:[0-5]?[0-9])$/;
+                if (newClockIn && !timeRegex.test(newClockIn)) {
+                    showMessageBox('올바른 출근 시간 형식 (HH:MM:SS)을 입력해주세요.');
+                    return;
+                }
+                if (newClockOut && !timeRegex.test(newClockOut)) {
+                    showMessageBox('올바른 퇴근 시간 형식 (HH:MM:SS)을 입력해주세요.');
+                    return;
+                }
+                // Only check if clockOut is earlier than clockIn if both are provided
+                if (newClockIn && newClockOut && calculateDurationSecondsRaw(newClockIn, newClockOut) < 0) {
+                    showMessageBox('퇴근 시간이 출근 시간보다 빠를 수 없습니다. (자정을 넘는 근무는 자동 계산됩니다.)');
+                    return;
+                }
+
+                // Recalculate durations based on new times
+                const { actualWorkSeconds, nightShiftSeconds } = calculateWorkAndShiftDurations(newClockIn, newClockOut);
+
+                record.clockIn = newClockIn;
+                record.clockOut = newClockOut;
+                record.durationSeconds = actualWorkSeconds;
+                record.duration = secondsToFormattedDuration(actualWorkSeconds);
+                record.nightShiftSeconds = nightShiftSeconds;
+
+                saveRecords();
+                renderDailyRecords(currentEditingDate);
+                renderCalendar(); // Re-render calendar to update daily totals
+                hideEditRecordModal();
+                showMessageBox('기록이 성공적으로 수정되었습니다.');
+            }
+        });
+
+        // Delete button in modal
+        deleteRecordBtn.addEventListener('click', async () => {
+            if (currentEditingDate && currentEditingRecordIndex !== -1) {
+                const confirmed = await showConfirmBox('이 기록을 정말 삭제하시겠습니까?');
+                if (confirmed) {
+                    allAttendanceRecords[currentEditingDate].splice(currentEditingRecordIndex, 1);
+                    // If no more records for the day, remove the date entry
+                    if (allAttendanceRecords[currentEditingDate].length === 0) {
+                        delete allAttendanceRecords[currentEditingDate];
+                    }
+                    saveRecords();
+                    renderDailyRecords(currentEditingDate);
+                    renderCalendar(); // Re-render calendar to update daily totals
+                    hideEditRecordModal();
+                    showMessageBox('기록이 성공적으로 삭제되었습니다.');
+                }
+            }
+        });
+
+
+        /**
+         * Formats a Date object into YYYY-MM-DD.
+         * @param {Date} date - The date object.
+         * @returns {string} Formatted date string.
+         */
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        /**
+         * Formats a Date object into HH:MM:SS.
+         * @param {Date} date - The date object.
+         * @returns {string} Formatted time string.
+         */
+        function formatTime(date) {
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${hours}:${minutes}:${seconds}`;
+        }
+
+        /**
+         * Formats a Date object into YYYY년 M월 D일 (요일).
+         * @param {Date} date - The date object.
+         * @returns {string} Formatted date string for display.
+         */
+        function formatDisplayDate(date) {
+            const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+            return date.toLocaleDateString('ko-KR', options);
+        }
+
+        /**
+         * Converts HH:MM:SS string to total seconds from midnight.
+         * @param {string} timeStr - Time string (HH:MM:SS).
+         * @returns {number} Seconds from midnight.
+         */
+        function timeToSeconds(timeStr) {
+            const [h, m, s] = timeStr.split(':').map(Number);
+            return h * 3600 + m * 60 + s;
+        }
+
+        /**
+         * Calculates the raw duration between two time strings (HH:MM:SS) in seconds,
+         * handling cases where end time is on the next day.
+         * @param {string} startTime - Start time string.
+         * @param {string} endTime - End time string.
+         * @returns {number} Raw duration in seconds, or 0 if invalid.
+         */
+        function calculateDurationSecondsRaw(startTime, endTime) {
+            if (!startTime || !endTime) return 0;
+
+            try {
+                const startSec = timeToSeconds(startTime);
+                let endSec = timeToSeconds(endTime);
+
+                // Handle cases where end time is on the next day (e.g., clocking out past midnight)
+                if (endSec < startSec) {
+                    endSec += 24 * 3600; // Add 24 hours in seconds
+                }
+                return endSec - startSec;
+            } catch (error) {
+                console.error("Error calculating raw duration seconds:", error);
+                return 0;
+            }
+        }
+
+        /**
+         * Calculates the overlap in seconds between two time intervals [s1, e1) and [s2, e2).
+         * Intervals can cross midnight (e.g., s=22:00, e=02:00).
+         * All times are seconds from midnight (0-86400).
+         * @param {number} s1 - Start of interval 1 (seconds).
+         * @param {number} e1 - End of interval 1 (seconds).
+         * @param {number} s2 - Start of interval 2 (seconds).
+         * @param {number} e2 - End of interval 2 (seconds).
+         * @returns {number} Overlap duration in seconds.
+         */
+        function getIntervalOverlap(s1, e1, s2, e2) {
+            const DAY_SECONDS = 24 * 3600;
+
+            // Normalize intervals to a single 48-hour period to handle wrap-around
+            // Create two versions of each interval: original and shifted by 24 hours
+            let intervals1 = [[s1, e1]];
+            if (e1 < s1) { // Interval 1 crosses midnight
+                intervals1 = [[s1, DAY_SECONDS], [0, e1]];
+            }
+
+            let intervals2 = [[s2, e2]];
+            if (e2 < s2) { // Interval 2 crosses midnight
+                intervals2 = [[s2, DAY_SECONDS], [0, e2]];
+            }
+
+            let totalOverlap = 0;
+
+            for (const [seg1Start, seg1End] of intervals1) {
+                for (const [seg2Start, seg2End] of intervals2) {
+                    const overlapStart = Math.max(seg1Start, seg2Start);
+                    const overlapEnd = Math.min(seg1End, seg2End);
+                    totalOverlap += Math.max(0, overlapEnd - overlapStart);
+                }
+            }
+            return totalOverlap;
+        }
+
+        /**
+         * Calculates actual work duration and night shift duration considering breaks.
+         * @param {string} startTimeStr - Clock-in time (HH:MM:SS)
+         * @param {string} endTimeStr - Clock-out time (HH:MM:SS)
+         * @returns {{actualWorkSeconds: number, nightShiftSeconds: number}}
+         */
+        function calculateWorkAndShiftDurations(startTimeStr, endTimeStr) {
+            if (!startTimeStr || !endTimeStr) {
+                return { actualWorkSeconds: 0, nightShiftSeconds: 0 };
+            }
+
+            let startSec = timeToSeconds(startTimeStr);
+            let endSec = timeToSeconds(endTimeStr);
+
+            // Calculate total elapsed time for the work segment
+            let totalElapsed = calculateDurationSecondsRaw(startTimeStr, endTimeStr);
+
+            // --- Calculate Fixed Breaks ---
+            let fixedBreaksDeducted = 0;
+
+            // Define fixed break intervals (start, end) in seconds from midnight
+            const FIXED_BREAK_INTERVALS_EXCEPT_BREAKFAST = [
+                { start: timeToSeconds('12:00:00'), end: timeToSeconds('13:00:00') }, // Lunch
+                { start: timeToSeconds('20:00:00'), end: timeToSeconds('20:30:00') }, // Dinner
+                { start: timeToSeconds('00:00:00'), end: timeToSeconds('00:30:00') }  // Late Night Snack (applies to next day's start if crossing midnight)
+            ];
+
+            for (const breakInterval of FIXED_BREAK_INTERVALS_EXCEPT_BREAKFAST) {
+                fixedBreaksDeducted += getIntervalOverlap(startSec, endSec, breakInterval.start, breakInterval.end);
+            }
+
+            // Conditional Breakfast Break (08:00-08:30) - only applies if work crosses midnight (철야작업)
+            const BREAKFAST_START = timeToSeconds('08:00:00');
+            const BREAKFAST_END = timeToSeconds('08:30:00');
+            if (totalElapsed > 0 && endSec < startSec) { // Check if it's an overnight shift (endTime is less than startTime)
+                fixedBreaksDeducted += getIntervalOverlap(startSec, endSec, BREAKFAST_START, BREAKFAST_END);
+            }
+
+            // Ensure fixedBreaksDeducted does not exceed totalElapsed
+            fixedBreaksDeducted = Math.min(fixedBreaksDeducted, totalElapsed);
+
+            let netWorkSecondsAfterFixedBreaks = totalElapsed - fixedBreaksDeducted;
+
+            // --- Apply General 4-hour Breaks ---
+            // "4시간마다 30분씩 휴식시간" - for every full 4 hours of *net* work (after fixed breaks)
+            const FOUR_HOURS_IN_SECONDS = 4 * 3600;
+            const THIRTY_MINUTES_IN_SECONDS = 30 * 60;
+
+            let additionalBreaks = Math.floor(netWorkSecondsAfterFixedBreaks / FOUR_HOURS_IN_SECONDS) * THIRTY_MINUTES_IN_SECONDS;
+
+            let actualWorkSeconds = netWorkSecondsAfterFixedBreaks - additionalBreaks;
+
+            // Ensure actualWorkSeconds is not negative
+            actualWorkSeconds = Math.max(0, actualWorkSeconds);
+
+            // --- Calculate Night Shift Seconds ---
+            // Night shift calculation is independent of breaks for compensation purposes,
+            // as it's a premium on hours worked during that period.
+            let nightShiftSeconds = calculateNightShiftSecondsInternal(startTimeStr, endTimeStr);
+
+            return { actualWorkSeconds, nightShiftSeconds };
+        }
+
+        /**
+         * Calculates night shift seconds (22:00-06:00) for a single work segment.
+         * @param {string} startTimeStr - Clock-in time (HH:MM:SS)
+         * @param {string} endTimeStr - Clock-out time (HH:MM:SS)
+         * @returns {number} Total night shift seconds.
+         */
+        function calculateNightShiftSecondsInternal(startTimeStr, endTimeStr) {
+            if (!startTimeStr || !endTimeStr) return 0;
+
+            let startSec = timeToSeconds(startTimeStr);
+            let endSec = timeToSeconds(endTimeStr);
+
+            const NIGHT_START_1 = 0 * 3600; // 00:00
+            const NIGHT_END_1 = 6 * 3600;   // 06:00
+            const NIGHT_START_2 = 22 * 3600; // 22:00
+            const NIGHT_END_2 = 24 * 3600; // 24:00 (midnight)
+
+            let totalNightSeconds = 0;
+            totalNightSeconds += getIntervalOverlap(startSec, endSec, NIGHT_START_1, NIGHT_END_1);
+            totalNightSeconds += getIntervalOverlap(startSec, endSec, NIGHT_START_2, NIGHT_END_2);
+
+            return totalNightSeconds;
+        }
+
+
+        /**
+         * Converts total seconds into a formatted duration string (H시간 M분 S초).
+         * @param {number} totalSeconds - Total seconds.
+         * @returns {string} Formatted duration string.
+         */
+        function secondsToFormattedDuration(totalSeconds) {
+            if (totalSeconds < 0) return '오류';
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            return `${hours}시간 ${minutes}분 ${seconds}초`;
+        }
+
+        /**
+         * Converts total seconds into a condensed formatted duration string (X시간 Y분).
+         * @param {number} totalSeconds - Total seconds.
+         * @returns {string} Condensed formatted duration string.
+         */
+        function secondsToCondensedDuration(totalSeconds) {
+            if (totalSeconds < 0) return '오류';
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.round((totalSeconds % 3600) / 60); // Round minutes
+
+            if (hours === 0 && minutes === 0) return ''; // No time recorded
+            if (hours === 0) return `${minutes}분`;
+            if (minutes === 0) return `${hours}시간`;
+            return `${hours}시간 ${minutes}분`;
+        }
+
+        /**
+         * Calculates the total duration for a given day in seconds.
+         * @param {string} dateString - The date in YYYY-MM-DD format.
+         * @returns {number} Total duration in seconds for that day.
+         */
+        function getTotalDailyDurationSeconds(dateString) {
+            const records = allAttendanceRecords[dateString];
+            if (!records || records.length === 0) {
+                return 0;
+            }
+            let totalSeconds = 0;
+            records.forEach(record => {
+                if (record.durationSeconds) {
+                    totalSeconds += record.durationSeconds;
+                }
+            });
+            return totalSeconds;
+        }
+
+        /**
+         * Calculates the total night shift duration for a given day in seconds.
+         * @param {string} dateString - The date in YYYY-MM-DD format.
+         * @returns {number} Total night shift duration in seconds for that day.
+         */
+        function getTotalDailyNightShiftSeconds(dateString) {
+            const records = allAttendanceRecords[dateString];
+            if (!records || records.length === 0) {
+                return 0;
+            }
+            let totalNightSeconds = 0;
+            records.forEach(record => {
+                if (record.nightShiftSeconds) {
+                    totalNightSeconds += record.nightShiftSeconds;
+                }
+            });
+            return totalNightSeconds;
+        }
+
+        /**
+         * Saves all attendance records and public holidays to localStorage.
+         */
+        function saveRecords() {
+            localStorage.setItem('allAttendanceRecords', JSON.stringify(allAttendanceRecords));
+            localStorage.setItem('publicHolidays', JSON.stringify(Array.from(publicHolidaysSet)));
+            calculateAndDisplayMonthlyTotal(); // Recalculate monthly total after saving
+            calculateAndDisplayAllowances(); // Recalculate allowances after saving
+        }
+
+        /**
+         * Loads all attendance records and public holidays from localStorage.
+         */
+        function loadRecords() {
+            const storedRecords = localStorage.getItem('allAttendanceRecords');
+            if (storedRecords) {
+                allAttendanceRecords = JSON.parse(storedRecords);
+            }
+
+            const storedHolidays = localStorage.getItem('publicHolidays');
+            if (storedHolidays) {
+                publicHolidaysSet = new Set(JSON.parse(storedHolidays));
+            } else {
+                // If no holidays are saved, use default 2025 holidays
+                publicHolidaysSet = new Set(DEFAULT_HOLIDAYS_2025.split(/[\n,]/).map(s => s.trim()).filter(s => s));
+                holidayInput.value = DEFAULT_HOLIDAYS_2025; // Pre-fill textarea
+            }
+            holidayInput.value = Array.from(publicHolidaysSet).join('\n'); // Display loaded holidays
+
+            renderCalendar(); // Render calendar based on loaded data
+            updateSelectedDateDisplay(); // Update display for selected date if any
+            calculateAndDisplayMonthlyTotal(); // Calculate initial monthly total
+            calculateAndDisplayAllowances(); // Calculate initial allowances
+        }
+
+        // --- Calendar Functions ---
+
+        /**
+         * Renders the calendar for the current month and year.
+         */
+        function renderCalendar() {
+            calendarGrid.innerHTML = ''; // Clear existing days
+            currentMonthYearDisplay.textContent = `${currentYear}년 ${currentMonth + 1}월`;
+
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const firstDayOfWeek = firstDayOfMonth.getDay(); // 0 for Sunday, 1 for Monday...
+
+            // Add empty divs for days before the 1st of the month
+            for (let i = 0; i < firstDayOfWeek; i++) {
+                const emptyDay = document.createElement('div');
+                emptyDay.classList.add('calendar-day', 'inactive');
+                calendarGrid.appendChild(emptyDay);
+            }
+
+            // Add days of the month
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(currentYear, currentMonth, day);
+                const formattedDate = formatDate(date); // YYYY-MM-DD
+                const hasRecord = allAttendanceRecords[formattedDate] && allAttendanceRecords[formattedDate].length > 0;
+                const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+                const dailyTotalDurationSeconds = getTotalDailyDurationSeconds(formattedDate);
+                const dailyTotalDurationDisplay = secondsToCondensedDuration(dailyTotalDurationSeconds);
+
+                const dayElement = document.createElement('div');
+                dayElement.classList.add('calendar-day');
+                dayElement.dataset.date = formattedDate;
+
+                // Add weekend classes
+                if (dayOfWeek === 0) { // Sunday
+                    dayElement.classList.add('sunday');
+                } else if (dayOfWeek === 6) { // Saturday
+                    dayElement.classList.add('saturday');
+                }
+
+                // Add holiday class
+                if (publicHolidaysSet.has(formattedDate)) {
+                    dayElement.classList.add('holiday');
+                }
+
+                // Add record indicator
+                if (hasRecord) {
+                    dayElement.classList.add('has-record');
+                }
+                // Add selected class (should override weekend/holiday colors if selected)
+                if (selectedDate === formattedDate) {
+                    dayElement.classList.add('selected');
+                }
+
+                dayElement.innerHTML = `
+                    <span class="day-number">${day}</span>
+                    <span class="daily-duration">${dailyTotalDurationDisplay}</span>
+                `;
+
+                dayElement.addEventListener('click', () => selectDate(formattedDate));
+                calendarGrid.appendChild(dayElement);
+            }
+            calculateAndDisplayMonthlyTotal(); // Recalculate monthly total when calendar changes
+            calculateAndDisplayAllowances(); // Recalculate allowances when calendar changes
+        }
+
+        /**
+         * Handles clicking on a calendar day to select it.
+         * @param {string} dateString - The date in YYYY-MM-DD format.
+         */
+        function selectDate(dateString) {
+            // Remove 'selected' class from previously selected day
+            if (selectedDate) {
+                const prevSelected = document.querySelector(`.calendar-day[data-date="${selectedDate}"]`);
+                if (prevSelected) {
+                    prevSelected.classList.remove('selected');
+                }
+            }
+
+            selectedDate = dateString;
+            const currentSelected = document.querySelector(`.calendar-day[data-date="${selectedDate}"]`);
+            if (currentSelected) {
+                currentSelected.classList.add('selected');
+            }
+
+            updateSelectedDateDisplay();
+            renderDailyRecords(dateString);
+        }
+
+        /**
+         * Updates the display for the currently selected date.
+         */
+        function updateSelectedDateDisplay() {
+            if (selectedDate) {
+                const dateObj = new Date(selectedDate);
+                selectedDateDisplay.textContent = formatDisplayDate(dateObj);
+                clockInBtn.disabled = false;
+                clockOutBtn.disabled = false;
+            } else {
+                selectedDateDisplay.textContent = '날짜를 선택해주세요.';
+                clockInBtn.disabled = true;
+                clockOutBtn.disabled = true;
+            }
+        }
+
+        /**
+         * Renders attendance records for the selected date.
+         * @param {string} dateString - The date in YYYY-MM-DD format.
+         */
+        function renderDailyRecords(dateString) {
+            dailyRecordsList.innerHTML = ''; // Clear existing records
+            const recordsForSelectedDate = allAttendanceRecords[dateString] || [];
+
+            if (recordsForSelectedDate.length === 0) {
+                noDailyRecordsMessage.classList.remove('hidden');
+                dailyRecordsList.appendChild(noDailyRecordsMessage);
+                return;
+            } else {
+                noDailyRecordsMessage.classList.add('hidden');
+            }
+
+            // Sort records by clockIn time
+            recordsForSelectedDate.sort((a, b) => {
+                if (a.clockIn < b.clockIn) return -1;
+                if (a.clockIn > b.clockIn) return 1;
+                return 0;
+            });
+
+            recordsForSelectedDate.forEach((record, index) => {
+                const recordItem = document.createElement('div');
+                recordItem.classList.add('bg-white', 'p-3', 'rounded-lg', 'shadow-sm', 'mb-2', 'border', 'border-gray-100');
+                recordItem.innerHTML = `
+                    <p class="font-bold text-gray-700 text-base mb-1">기록 #${index + 1}</p>
+                    <p class="text-gray-600 text-sm">출근: <span class="font-medium">${record.clockIn || '기록 없음'}</span></p>
+                    <p class="text-gray-600 text-sm">퇴근: <span class="font-medium">${record.clockOut || '기록 없음'}</span></p>
+                    <p class="text-gray-600 text-sm">근무 시간: <span class="font-medium">${record.duration || 'N/A'}</span></p>
+                    <p class="text-gray-600 text-sm">야간 근무: <span class="font-medium">${secondsToFormattedDuration(record.nightShiftSeconds || 0)}</span></p>
+                    <div class="flex justify-end gap-2 mt-2">
+                        <button class="edit-record-btn bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-1 px-3 rounded-md transition duration-200" data-index="${index}">
+                            수정
+                        </button>
+                        <button class="delete-record-btn bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-1 px-3 rounded-md transition duration-200" data-index="${index}">
+                            삭제
+                        </button>
+                    </div>
+                `;
+                dailyRecordsList.appendChild(recordItem);
+            });
+
+            // Add event listeners for edit and delete buttons
+            document.querySelectorAll('.edit-record-btn').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const index = parseInt(event.target.dataset.index);
+                    showEditRecordModal(dateString, index);
+                });
+            });
+
+            document.querySelectorAll('.delete-record-btn').forEach(button => {
+                button.addEventListener('click', async (event) => {
+                    const index = parseInt(event.target.dataset.index);
+                    const confirmed = await showConfirmBox('이 기록을 정말 삭제하시겠습니까?');
+                    if (confirmed) {
+                        allAttendanceRecords[dateString].splice(index, 1);
+                        if (allAttendanceRecords[dateString].length === 0) {
+                            delete allAttendanceRecords[dateString];
+                        }
+                        saveRecords();
+                        renderDailyRecords(dateString);
+                        renderCalendar(); // Update calendar to refresh daily totals
+                        showMessageBox('기록이 삭제되었습니다.');
+                    }
+                });
+            });
+
+            dailyRecordsList.scrollTop = dailyRecordsList.scrollHeight; // Scroll to bottom
+        }
+
+        /**
+         * Calculates and displays the total work duration for the current month.
+         */
+        function calculateAndDisplayMonthlyTotal() {
+            let monthlyTotalSeconds = 0;
+            const currentMonthStart = new Date(currentYear, currentMonth, 1);
+            const currentMonthEnd = new Date(currentYear, currentMonth + 1, 0);
+
+            for (const dateString in allAttendanceRecords) {
+                const recordDate = new Date(dateString);
+                // Check if the record date falls within the current displayed month
+                if (recordDate >= currentMonthStart && recordDate <= currentMonthEnd) {
+                    monthlyTotalSeconds += getTotalDailyDurationSeconds(dateString);
+                }
+            }
+            monthlyTotalDisplay.textContent = `이번 달 총 근무 시간: ${secondsToFormattedDuration(monthlyTotalSeconds)}`;
+        }
+
+        /**
+         * Calculates and displays estimated allowances for the current month.
+         */
+        function calculateAndDisplayAllowances() {
+            let monthlyStandardWorkDays = 0;
+            let totalMonthlyActualWorkSeconds = 0;
+            let totalMonthlyNightShiftSeconds = 0;
+
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(currentYear, currentMonth, day);
+                const formattedDate = formatDate(date);
+                const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+
+                // Calculate standard work days (평일근로일, excluding weekends and holidays)
+                if (dayOfWeek !== 0 && dayOfWeek !== 6 && !publicHolidaysSet.has(formattedDate)) {
+                    monthlyStandardWorkDays++;
+                }
+
+                // Sum actual work hours and night shift hours for the month
+                if (allAttendanceRecords[formattedDate]) {
+                    totalMonthlyActualWorkSeconds += getTotalDailyDurationSeconds(formattedDate);
+                    totalMonthlyNightShiftSeconds += getTotalDailyNightShiftSeconds(formattedDate);
+                }
+            }
+
+            const monthlyStandardWorkHoursSeconds = monthlyStandardWorkDays * STANDARD_DAILY_HOURS_SECONDS;
+            const monthlyStandardWorkHoursDisplay = secondsToFormattedDuration(monthlyStandardWorkHoursSeconds);
+
+            // Calculate hourly wage
+            let hourlyWage = 0;
+            if (monthlyStandardWorkHoursSeconds > 0) {
+                hourlyWage = BASIC_SALARY / (monthlyStandardWorkHoursSeconds / 3600);
+            }
+
+            // Calculate overtime
+            let overtimeSeconds = Math.max(0, totalMonthlyActualWorkSeconds - monthlyStandardWorkHoursSeconds);
+            let overtimeHoursDisplay = secondsToFormattedDuration(overtimeSeconds);
+            let overtimeAllowance = (overtimeSeconds / 3600) * hourlyWage * 1.5;
+
+            // Calculate night shift allowance
+            let nightShiftHoursDisplay = secondsToFormattedDuration(totalMonthlyNightShiftSeconds);
+            let nightShiftAllowance = (totalMonthlyNightShiftSeconds / 3600) * hourlyWage * 0.5; // 0.5배 가산
+
+            // Update display
+            estimatedStandardHours.textContent = monthlyStandardWorkHoursDisplay;
+            estimatedHourlyWage.textContent = `${Math.round(hourlyWage).toLocaleString()}원`;
+            estimatedOvertimeHours.textContent = overtimeHoursDisplay;
+            estimatedOvertimeAllowance.textContent = `${Math.round(overtimeAllowance).toLocaleString()}원`;
+            estimatedNightShiftHours.textContent = nightShiftHoursDisplay;
+            estimatedNightShiftAllowance.textContent = `${Math.round(nightShiftAllowance).toLocaleString()}원`;
+        }
+
+        // --- Event Listeners ---
+
+        prevMonthBtn.addEventListener('click', () => {
+            currentMonth--;
+            if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            }
+            renderCalendar();
+        });
+
+        nextMonthBtn.addEventListener('click', () => {
+            currentMonth++;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
+            renderCalendar();
+        });
+
+        clockInBtn.addEventListener('click', () => {
+            if (!selectedDate) {
+                showMessageBox('날짜를 먼저 선택해주세요.');
+                return;
+            }
+
+            const now = new Date();
+            const currentTime = formatTime(now);
+
+            // Get records for the selected date, or initialize if none exist
+            if (!allAttendanceRecords[selectedDate]) {
+                allAttendanceRecords[selectedDate] = [];
+            }
+
+            // Check if there's an ongoing work session (clocked in, but not out yet)
+            const ongoingRecord = allAttendanceRecords[selectedDate].find(record => record.clockIn && !record.clockOut);
+            if (ongoingRecord) {
+                showMessageBox('선택된 날짜에 이미 출근 기록이 있습니다. 퇴근을 먼저 해주세요.');
+                return;
+            }
+
+            allAttendanceRecords[selectedDate].push({
+                clockIn: currentTime,
+                clockOut: null,
+                duration: '',
+                durationSeconds: 0, // Initialize duration in seconds
+                nightShiftSeconds: 0 // Initialize night shift seconds
+            });
+
+            saveRecords();
+            renderDailyRecords(selectedDate); // Re-render records for selected date
+            renderCalendar(); // Update calendar to show has-record state and daily/monthly totals
+            showMessageBox(`출근 기록됨: ${selectedDate} ${currentTime}`);
+        });
+
+        clockOutBtn.addEventListener('click', () => {
+            if (!selectedDate) {
+                showMessageBox('날짜를 먼저 선택해주세요.');
+                return;
+            }
+
+            const now = new Date();
+            const currentTime = formatTime(now);
+
+            const recordsForSelectedDate = allAttendanceRecords[selectedDate];
+
+            if (!recordsForSelectedDate || recordsForSelectedDate.length === 0) {
+                showMessageBox('선택된 날짜에 출근 기록이 없습니다.');
+                return;
+            }
+
+            // Find the last record that is clocked in but not clocked out
+            const lastClockInRecord = recordsForSelectedDate.reverse().find(record => record.clockIn && !record.clockOut);
+            recordsForSelectedDate.reverse(); // Put it back in original order
+
+            if (lastClockInRecord) {
+                const { actualWorkSeconds, nightShiftSeconds } = calculateWorkAndShiftDurations(lastClockInRecord.clockIn, currentTime);
+
+                lastClockInRecord.clockOut = currentTime;
+                lastClockInRecord.durationSeconds = actualWorkSeconds;
+                lastClockInRecord.duration = secondsToFormattedDuration(actualWorkSeconds);
+                lastClockInRecord.nightShiftSeconds = nightShiftSeconds;
+
+                saveRecords();
+                renderDailyRecords(selectedDate);
+                renderCalendar(); // Update calendar to refresh daily/monthly totals
+                showMessageBox(`퇴근 기록됨: ${selectedDate} ${currentTime}\n근무 시간: ${lastClockInRecord.duration}`);
+            } else {
+                showMessageBox('선택된 날짜에 아직 퇴근하지 않은 출근 기록이 없습니다.');
+            }
+        });
+
+        saveHolidaysBtn.addEventListener('click', () => {
+            const holidayText = holidayInput.value;
+            const holidaysArray = holidayText.split(/[\n,]/).map(s => s.trim()).filter(s => s); // Split by newline or comma, trim, filter empty
+            publicHolidaysSet = new Set();
+            let invalidDates = [];
+
+            holidaysArray.forEach(dateStr => {
+                // Basic date format validation (YYYY-MM-DD)
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                    // Further validate if it's a real date
+                    const [year, month, day] = dateStr.split('-').map(Number);
+                    const testDate = new Date(year, month - 1, day);
+                    if (testDate.getFullYear() === year && testDate.getMonth() === month - 1 && testDate.getDate() === day) {
+                        publicHolidaysSet.add(dateStr);
+                    } else {
+                        invalidDates.push(dateStr);
+                    }
+                } else {
+                    invalidDates.push(dateStr);
+                }
+            });
+
+            if (invalidDates.length > 0) {
+                showMessageBox(`다음 날짜 형식 오류: ${invalidDates.join(', ')}\n올바른 형식은 YYYY-MM-DD 입니다.`);
+            } else {
+                showMessageBox('공휴일이 저장되었습니다.');
+            }
+            saveRecords(); // Save holidays to localStorage
+            renderCalendar(); // Re-render calendar to reflect holiday changes
+        });
+
+
+        resetBtn.addEventListener('click', async () => {
+            const confirmed = await showConfirmBox('정말 모든 기록을 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.');
+            if (confirmed) {
+                allAttendanceRecords = {};
+                selectedDate = null; // Clear selected date
+                saveRecords();
+                renderCalendar();
+                updateSelectedDateDisplay(); // Clear selected date display
+                renderDailyRecords(null); // Clear daily records list
+                showMessageBox('모든 기록이 초기화되었습니다.');
+            }
+        });
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadRecords(); // Load records and render calendar
+            // Automatically select today's date on load
+            const today = formatDate(new Date());
+            selectDate(today);
+            // Ensure calendar shows current month if not already
+            const todayDateObj = new Date();
+            currentMonth = todayDateObj.getMonth();
+            currentYear = todayDateObj.getFullYear();
+            renderCalendar();
+        });
+    </script>
+</body>
+</html>
