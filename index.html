@@ -311,7 +311,6 @@
             '2025-03-01', // 삼일절
             '2025-05-05', // 어린이날
             '2025-05-06', // 어린이날 대체 공휴일 (추가됨)
-            '2025-05-28', // 부처님오신날 (음력 4월 8일)
             '2025-06-03', // 현충일 대체 공휴일 (추가됨 - 임의 지정)
             '2025-06-06', // 현충일
             '2025-08-15', // 광복절
@@ -322,9 +321,8 @@
             '2025-10-09', // 한글날
             '2025-12-25'  // 성탄절
         ];
-        // 2025-05-28은 공휴일이 아니므로 제거
+        // 2025-05-28은 공휴일이 아니므로 제거 (이전 요청에서 제거됨)
         holidays = holidays.filter(date => date !== '2025-05-28');
-        // 2025-05-06과 2025-06-03 추가 (이미 위 초기 배열에 포함됨)
         // 중복 방지를 위해 Set을 활용하여 정렬
         holidays = Array.from(new Set(holidays)).sort();
 
@@ -523,27 +521,40 @@
             let fixedBreaksDeducted = 0;
 
             // Define all possible break intervals for a 24-hour cycle, relative to 00:00
-            const BREAK_INTERVALS_RELATIVE = [
+            // NEW: Breakfast break (08:00-08:30) is only applied if isNextDay is true
+            const BREAK_INTERVALS_FOR_ALL_SHIFTS = [
                 { start: timeToSeconds('12:00:00'), end: timeToSeconds('13:00:00') }, // Lunch
                 { start: timeToSeconds('20:00:00'), end: timeToSeconds('20:30:00') }, // Dinner
-                { start: timeToSeconds('00:00:00'), end: timeToSeconds('00:30:00') }, // Late Night
-                { start: timeToSeconds('08:00:00'), end: timeToSeconds('08:30:00') }  // Breakfast
+                { start: timeToSeconds('00:00:00'), end: timeToSeconds('00:30:00') }  // Late Night
             ];
 
-            // To correctly apply breaks for overnight shifts, we need to consider the work interval
-            // as a continuous span of seconds starting from the 'startSec' of the first day.
+            const BREAKFAST_BREAK = { start: timeToSeconds('08:00:00'), end: timeToSeconds('08:30:00') }; // Breakfast
+
+            // Add breaks that apply to all shifts
             const workIntervalEndOnContinuousTimeline = startSec + totalElapsedSeconds;
 
-            for (const breakInterval of BREAK_INTERVALS_RELATIVE) {
-                // Check overlap for the break on the current day
+            for (const breakInterval of BREAK_INTERVALS_FOR_ALL_SHIFTS) {
                 fixedBreaksDeducted += getLinearIntervalOverlap(startSec, workIntervalEndOnContinuousTimeline, breakInterval.start, breakInterval.end);
 
                 // If the work extends into the next day, check overlap for the break on the next day
-                // by shifting the break interval by 24 hours.
                 if (workIntervalEndOnContinuousTimeline > 24 * 3600) {
                     fixedBreaksDeducted += getLinearIntervalOverlap(startSec, workIntervalEndOnContinuousTimeline, breakInterval.start + 24 * 3600, breakInterval.end + 24 * 3600);
                 }
             }
+
+            // NEW: Conditionally apply breakfast break only for overnight shifts (isNextDay is true)
+            if (isNextDay) {
+                // Breakfast break applies only if the shift crosses midnight and includes 08:00-08:30 on the *next* day.
+                // Or if the shift starts before 08:30 and crosses midnight.
+                // To accurately apply the breakfast break for an overnight shift, we need to consider if the work span
+                // includes the 08:00-08:30 window of the *next* day.
+                // The work interval on a continuous timeline goes from `startSec` to `startSec + totalElapsedSeconds`.
+                // The breakfast break for the next day is `08:00:00 + 24*3600` to `08:30:00 + 24*3600`.
+                const nextDayBreakfastStart = BREAKFAST_BREAK.start + 24 * 3600;
+                const nextDayBreakfastEnd = BREAKFAST_BREAK.end + 24 * 3600;
+                fixedBreaksDeducted += getLinearIntervalOverlap(startSec, workIntervalEndOnContinuousTimeline, nextDayBreakfastStart, nextDayBreakfastEnd);
+            }
+
 
             fixedBreaksDeducted = Math.min(fixedBreaksDeducted, totalElapsedSeconds);
 
@@ -1010,7 +1021,7 @@
         addHolidayBtn.addEventListener('click', () => {
             const inputDates = holidayInput.value.split(',').map(d => d.trim()).filter(d => d);
             const addedCount = inputDates.reduce((count, dateStr) => {
-                // Basic format check APAC-MM-DD
+                // Basic format check YYYY-MM-DD
                 if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !holidays.includes(dateStr)) {
                     holidays.push(dateStr);
                     return count + 1;
